@@ -1,0 +1,32 @@
+# Python 缓存 / 编译产物
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+
+# PyInstaller 打包产物（由 build_exe.py 重新生成，不入库）
+build/
+build2/
+buildz/
+dist/
+distz/
+*.spec
+*.exe
+*.pyd
+*.dll
+*.manifest
+
+# 本地数据与运行产物
+*.db
+*.db-journal
+*.sqlite3
+*.log
+
+# 截图 / 临时产物（shot*.py 等工具生成）
+*.png
+*.jpg
+screenshots/
+shots/

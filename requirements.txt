@@ -1,0 +1,5 @@
+# 运行 Agenda 桌面便签 / 事务管理应用
+PyQt6>=6.5
+
+# 打包成单文件 exe（python build_exe.py）
+pyinstaller>=6.0
