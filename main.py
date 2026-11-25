@@ -2169,6 +2169,8 @@ class Canvas(QWidget):
                                                                 month=self.cal_month,
                                                                 day=min(d, last))
                         self.validate_ddl()
+                        self.calendar_expanded = False
+                        self.task_scroll = min(self.task_scroll, self.task_max_scroll())
                         self.update()
                         return True
         # 常用时间
