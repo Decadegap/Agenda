@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen
-from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QLineEdit
+from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QLineEdit, QSystemTrayIcon, QMenu, QMessageBox, QStyle, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import db as DB
@@ -2339,10 +2339,73 @@ def show_note_flag(t):
     return bool(t.get("note_name"))
 
 
+class CloseConfirmDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("关闭 Agenda")
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedWidth(460)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        card = QFrame()
+        card.setObjectName("closeCard")
+        outer.addWidget(card)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(30, 28, 30, 28)
+        layout.setSpacing(16)
+        eyebrow = QLabel("AGENDA  /  退出确认")
+        eyebrow.setObjectName("eyebrow")
+        title = QLabel("是否同时关闭桌面卡片？")
+        title.setObjectName("closeTitle")
+        text = QLabel("桌面上还有待处理的事务。\n你可以保留卡片，稍后从右下角托盘重新打开主界面。")
+        text.setWordWrap(True)
+        text.setObjectName("closeDescription")
+        for widget in (eyebrow, title, text):
+            layout.addWidget(widget)
+        layout.addSpacing(8)
+        buttons = QHBoxLayout()
+        buttons.setSpacing(12)
+        keep = QPushButton("否，保留卡片")
+        keep.setObjectName("keepCards")
+        close = QPushButton("是，全部退出")
+        close.setObjectName("exitAll")
+        for button in (keep, close):
+            button.setMinimumHeight(42)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            buttons.addWidget(button)
+        layout.addLayout(buttons)
+        keep.clicked.connect(self.reject)
+        close.clicked.connect(self.accept)
+        keep.setDefault(True)
+        self.setStyleSheet("""
+            QFrame#closeCard { background: #FFFFFF; border: 1px solid #DDE3EC; border-radius: 16px; }
+            QLabel { background: transparent; border: none; font-family: 'Microsoft YaHei'; }
+            QLabel#eyebrow { color: #6880A3; font-size: 11px; }
+            QLabel#closeTitle { color: #1B1D21; font-size: 20px; font-weight: 600; }
+            QLabel#closeDescription { color: #687181; font-size: 13px; line-height: 1.6; }
+            QPushButton { font-family: 'Microsoft YaHei'; font-size: 13px; border-radius: 8px; padding: 0 16px; }
+            QPushButton#keepCards { background: #EDF2FC; color: #365FA8; border: 1px solid #CFDAED; }
+            QPushButton#keepCards:hover { background: #DFE8FA; }
+            QPushButton#keepCards:focus { border: 2px solid #4874CB; }
+            QPushButton#exitAll { background: #4874CB; color: white; border: 1px solid #4874CB; }
+            QPushButton#exitAll:hover { background: #3963B5; }
+            QPushButton:pressed { padding-top: 2px; }
+        """)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Agenda")
+        self.tray = QSystemTrayIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView), self)
+        self.tray.setToolTip("Agenda")
+        menu = QMenu(self)
+        menu.addAction("打开主界面", self.restore_window)
+        menu.addAction("退出全部", self.exit_all)
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(self.on_tray_activated)
         self.setStyleSheet("background:#F4F5F7;")
         self.canvas = Canvas()
         self.setCentralWidget(self.canvas)
@@ -2350,6 +2413,36 @@ class MainWindow(QMainWindow):
         # 允许拖拽调整窗口大小
         self.setMinimumSize(MIN_W, MIN_H)
         self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
+
+    def restore_window(self):
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        self.tray.hide()
+
+    def on_tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger,
+                      QSystemTrayIcon.ActivationReason.DoubleClick):
+            self.restore_window()
+
+    def exit_all(self):
+        self.canvas.stop_sticky()
+        self.tray.hide()
+        QApplication.instance().quit()
+
+    def closeEvent(self, event):
+        proc = self.canvas.sticky_proc
+        has_cards = (proc is not None and proc.poll() is None
+                     and any(n["pending_cnt"] > 0 for n in DB.list_notes()))
+        if has_cards:
+            box = CloseConfirmDialog(self)
+            if box.exec() != QDialog.DialogCode.Accepted:
+                event.ignore()
+                self.tray.show()
+                self.hide()
+                return
+        event.accept()
+        self.exit_all()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
