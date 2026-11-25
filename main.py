@@ -398,7 +398,7 @@ class Canvas(QWidget):
                                   self.primary_btn.width(), label)
         elif self.primary_btn is not None and self.manage:
             self.draw_primary_btn(p, self.primary_btn.left(), self.primary_btn.top(),
-                                  self.primary_btn.width(), "完成管理")
+                                  self.primary_btn.width(), "返回")
 
         # 右侧「管理」按钮（每个 tab 都有，用于删除该 tab 的记录）
         if self.manage_btn is not None:
@@ -1223,13 +1223,14 @@ class Canvas(QWidget):
         bx = dx + 32
         bw = vw - 64
         sy = dy - getattr(self, "task_scroll", 0)   # 内容顶端（滚动后）
-        by = sy + 240            # DDL 显示框
+        by = sy + 260            # DDL 显示框
         cal_y = by + 62          # 日历框顶部（给提示行留出空间）
         cal_h = 200
-        head_y = sy + 508        # "时间" 标题行
-        hours_y = sy + 532       # 小时滑条行
-        mins_y = sy + 570        # 分钟滑条行
-        chips_y = sy + 608       # 常用时间按钮行
+        extra = 210 if getattr(self, "calendar_expanded", False) else 0
+        head_y = sy + 338 + extra        # "时间" 标题行
+        hours_y = head_y + 32       # 小时滑条行
+        mins_y = head_y + 74        # 分钟滑条行
+        chips_y = head_y + 116       # 常用时间按钮行
         h_track = (bx + 48, hours_y + 11, bw - 48 - 78)
         m_track = (bx + 48, mins_y + 11, bw - 48)
         return dict(dx=dx, dy=dy, vw=vw, vh=vh, sy=sy, bx=bx, bw=bw, by=by,
@@ -1286,59 +1287,62 @@ class Canvas(QWidget):
                        int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
                        "过去的日期不可选择，DDL 需晚于当前时间")
 
-        # ---------- 日历
-        cy = g["cal_y"]
-        cw = w
-        p.setPen(QPen(LINE, 1))
-        p.setBrush(WHITE)
-        p.drawRoundedRect(QRectF(x, cy, cw, g["cal_h"]), 10, 10)
-        # 月份头 + 翻页
-        p.setFont(f(14, bold=True))
-        p.setPen(INK)
-        p.drawText(QRectF(x + 12, cy + 6, 120, 26),
-                   int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-                   f"{self.cal_year} 年 {self.cal_month} 月")
-        p.setFont(f(16))
         p.setPen(INK_SOFT)
-        p.drawText(QRectF(x + cw - 82, cy + 6, 30, 26),
-                   int(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter), "\u2039")
-        p.drawText(QRectF(x + cw - 50, cy + 6, 30, 26),
-                   int(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter), "\u203a")
-        # 星期头
-        heads = ["一", "二", "三", "四", "五", "六", "日"]
-        cell_w = (cw - 24) / 7
-        for i, hd in enumerate(heads):
-            p.setFont(f(12))
-            p.setPen(INK_FAINT)
-            p.drawText(QRectF(x + 12 + i * cell_w, cy + 34, cell_w, 20),
-                       int(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter), hd)
-        # 日期格子
-        for ri, row in enumerate(month_grid(self.cal_year, self.cal_month)):
-            for ci, d in enumerate(row):
-                if d is None:
-                    continue
-                cx = x + 12 + ci * cell_w
-                cyy = cy + 56 + ri * 24
-                rect = QRectF(cx, cyy, cell_w - 4, 22)
-                is_today = (d == today.day and self.cal_month == today.month
-                            and self.cal_year == today.year)
-                is_sel = (d == self.ddl_date.day and self.cal_month == self.ddl_date.month
-                          and self.cal_year == self.ddl_date.year)
-                is_past = datetime(self.cal_year, self.cal_month, d).date() < today
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(ACCENT if is_sel else QColor(0, 0, 0, 0))
-                p.drawRoundedRect(rect, 6, 6)
-                p.setFont(f(13, bold=is_sel or is_today))
-                if is_sel:
-                    p.setPen(WHITE)
-                elif is_past:
-                    p.setPen(QColor("#C4C9D0"))
-                elif is_today:
-                    p.setPen(ACCENT)
-                else:
-                    p.setPen(INK_SOFT)
-                p.drawText(rect, int(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter),
-                           str(d))
+        p.drawText(QRectF(x + w - 30, y, 24, 40), int(Qt.AlignmentFlag.AlignCenter), "▴" if getattr(self, "calendar_expanded", False) else "▾")
+        if getattr(self, "calendar_expanded", False):
+            # ---------- 日历
+            cy = g["cal_y"]
+            cw = w
+            p.setPen(QPen(LINE, 1))
+            p.setBrush(WHITE)
+            p.drawRoundedRect(QRectF(x, cy, cw, g["cal_h"]), 10, 10)
+            # 月份头 + 翻页
+            p.setFont(f(14, bold=True))
+            p.setPen(INK)
+            p.drawText(QRectF(x + 12, cy + 6, 120, 26),
+                       int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                       f"{self.cal_year} 年 {self.cal_month} 月")
+            p.setFont(f(16))
+            p.setPen(INK_SOFT)
+            p.drawText(QRectF(x + cw - 82, cy + 6, 30, 26),
+                       int(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter), "\u2039")
+            p.drawText(QRectF(x + cw - 50, cy + 6, 30, 26),
+                       int(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter), "\u203a")
+            # 星期头
+            heads = ["一", "二", "三", "四", "五", "六", "日"]
+            cell_w = (cw - 24) / 7
+            for i, hd in enumerate(heads):
+                p.setFont(f(12))
+                p.setPen(INK_FAINT)
+                p.drawText(QRectF(x + 12 + i * cell_w, cy + 34, cell_w, 20),
+                           int(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter), hd)
+            # 日期格子
+            for ri, row in enumerate(month_grid(self.cal_year, self.cal_month)):
+                for ci, d in enumerate(row):
+                    if d is None:
+                        continue
+                    cx = x + 12 + ci * cell_w
+                    cyy = cy + 56 + ri * 24
+                    rect = QRectF(cx, cyy, cell_w - 4, 22)
+                    is_today = (d == today.day and self.cal_month == today.month
+                                and self.cal_year == today.year)
+                    is_sel = (d == self.ddl_date.day and self.cal_month == self.ddl_date.month
+                              and self.cal_year == self.ddl_date.year)
+                    is_past = datetime(self.cal_year, self.cal_month, d).date() < today
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.setBrush(ACCENT if is_sel else QColor(0, 0, 0, 0))
+                    p.drawRoundedRect(rect, 6, 6)
+                    p.setFont(f(13, bold=is_sel or is_today))
+                    if is_sel:
+                        p.setPen(WHITE)
+                    elif is_past:
+                        p.setPen(QColor("#C4C9D0"))
+                    elif is_today:
+                        p.setPen(ACCENT)
+                    else:
+                        p.setPen(INK_SOFT)
+                    p.drawText(rect, int(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter),
+                               str(d))
         # ---------- 时间滑条
         head_y = g["head_y"]
         p.setFont(f(13))
@@ -1421,7 +1425,7 @@ class Canvas(QWidget):
     def task_max_scroll(self):
         """任务弹窗可滚动的最大距离（内容实际高度约 640）"""
         vh = min(TASK_CONTENT_H, self.H - 80)
-        return max(0, 640 - vh)
+        return max(0, (710 if getattr(self, "calendar_expanded", False) else 500) - (vh - 66))
 
     def draw_task_dialog(self, p):
         g = self.ddl_rects()
@@ -1445,7 +1449,7 @@ class Canvas(QWidget):
         self._field_clip = clip_rect
         self.field(p, "task_name", x + 32, sy + 80, iw, "事务名称",
                    "给它起个名字，例如：背单词")
-        self.field(p, "task_content", x + 32, sy + 150, iw, "具体内容（必填）",
+        self.field(p, "task_content", x + 32, sy + 166, iw, "具体内容（必填）",
                    "例如：背 100 个单词")
         self.draw_ddl_picker(p, x + 32, g["by"], iw)
         p.restore()
@@ -1738,7 +1742,7 @@ class Canvas(QWidget):
         # ---- 记录管理模式
         if self.manage:
             tr = self.title_rect()
-            # 头部「完成管理」按钮
+            # 头部「返回」按钮
             pb = getattr(self, "primary_btn", None)
             if pb and self.hit(x, y, pb):
                 self.exit_manage()
@@ -2118,49 +2122,55 @@ class Canvas(QWidget):
         # 滑条（可拖动）
         if self.handle_slider_drag(x, y):
             return True
-        # 月份翻页
-        if self.hit(x, y, QRectF(bx + bw - 82, cy + 6, 30, 26)):
-            self.cal_month -= 1
-            if self.cal_month < 1:
-                self.cal_month = 12
-                self.cal_year -= 1
+        if self.hit(x, y, QRectF(bx, by, bw, 40)):
+            self.calendar_expanded = not getattr(self, "calendar_expanded", False)
+            self.task_scroll = min(self.task_scroll, self.task_max_scroll())
             self.update()
             return True
-        if self.hit(x, y, QRectF(bx + bw - 50, cy + 6, 30, 26)):
-            self.cal_month += 1
-            if self.cal_month > 12:
-                self.cal_month = 1
-                self.cal_year += 1
-            self.update()
-            return True
-        # 日期格子（过去的日期不可选）
-        cell_w = (bw - 24) / 7
-        today = datetime.now().date()
-        for ri, row in enumerate(month_grid(self.cal_year, self.cal_month)):
-            for ci, d in enumerate(row):
-                if d is None:
-                    continue
-                rect = QRectF(bx + 12 + ci * cell_w, cy + 56 + ri * 24, cell_w - 4, 22)
-                if self.hit(x, y, rect):
-                    if datetime(self.cal_year, self.cal_month, d).date() < today:
-                        # 过去的日期：不允许选择，直接提示
-                        self.ddl_error = "不能选择过去的日期，请选择今天或之后的日期"
+        if getattr(self, "calendar_expanded", False):
+            # 月份翻页
+            if self.hit(x, y, QRectF(bx + bw - 82, cy + 6, 30, 26)):
+                self.cal_month -= 1
+                if self.cal_month < 1:
+                    self.cal_month = 12
+                    self.cal_year -= 1
+                self.update()
+                return True
+            if self.hit(x, y, QRectF(bx + bw - 50, cy + 6, 30, 26)):
+                self.cal_month += 1
+                if self.cal_month > 12:
+                    self.cal_month = 1
+                    self.cal_year += 1
+                self.update()
+                return True
+            # 日期格子（过去的日期不可选）
+            cell_w = (bw - 24) / 7
+            today = datetime.now().date()
+            for ri, row in enumerate(month_grid(self.cal_year, self.cal_month)):
+                for ci, d in enumerate(row):
+                    if d is None:
+                        continue
+                    rect = QRectF(bx + 12 + ci * cell_w, cy + 56 + ri * 24, cell_w - 4, 22)
+                    if self.hit(x, y, rect):
+                        if datetime(self.cal_year, self.cal_month, d).date() < today:
+                            # 过去的日期：不允许选择，直接提示
+                            self.ddl_error = "不能选择过去的日期，请选择今天或之后的日期"
+                            self.update()
+                            return True
+                        try:
+                            self.ddl_date = self.ddl_date.replace(year=self.cal_year,
+                                                                month=self.cal_month,
+                                                                day=d)
+                        except ValueError:
+                            # 该月没有这一天（如 2/30），退到当月最后一天
+                            import calendar as _cal
+                            last = _cal.monthrange(self.cal_year, self.cal_month)[1]
+                            self.ddl_date = self.ddl_date.replace(year=self.cal_year,
+                                                                month=self.cal_month,
+                                                                day=min(d, last))
+                        self.validate_ddl()
                         self.update()
                         return True
-                    try:
-                        self.ddl_date = self.ddl_date.replace(year=self.cal_year,
-                                                            month=self.cal_month,
-                                                            day=d)
-                    except ValueError:
-                        # 该月没有这一天（如 2/30），退到当月最后一天
-                        import calendar as _cal
-                        last = _cal.monthrange(self.cal_year, self.cal_month)[1]
-                        self.ddl_date = self.ddl_date.replace(year=self.cal_year,
-                                                            month=self.cal_month,
-                                                            day=min(d, last))
-                    self.validate_ddl()
-                    self.update()
-                    return True
         # 常用时间
         for i, c in enumerate(["09:00", "12:00", "18:00", "21:00", "23:00"]):
             rect = QRectF(bx + 52 + i * 84, g["chips_y"], 76, 26)
@@ -2190,6 +2200,7 @@ class Canvas(QWidget):
 
     def open_task_dialog(self):
         """打开创建事务弹窗：清空上次输入"""
+        self.calendar_expanded = False
         self.overlay = "task_create"
         for k in ("task_name", "task_content", "task_ddl"):
             self.edits.pop(k, None)

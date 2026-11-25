@@ -13,8 +13,8 @@ import os
 import sys
 
 from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer, QObject
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QFontMetrics
+from PyQt6.QtWidgets import QApplication, QWidget, QPushButton
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import db as DB
@@ -59,12 +59,14 @@ class StickyWindow(QWidget):
         super().__init__()
         self.note_id = note_id
         self.rows = []
+        self.complete_buttons = []
         self.menu_open = False
+        self._drag_offset = None
+        self._drag_start = None
 
         self.setWindowTitle("Agenda 便签")
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -82,7 +84,7 @@ class StickyWindow(QWidget):
     def place(self):
         """按便签 id 错开摆放，避免多张便签完全重叠"""
         try:
-            notes = DB.list_notes()
+            notes = [n for n in DB.list_notes() if n["pending_cnt"] > 0]
             ids = [n["id"] for n in notes]
             idx = ids.index(self.note_id) if self.note_id in ids else 0
         except Exception:
@@ -120,13 +122,58 @@ class StickyWindow(QWidget):
                 "delay": DB.delay_seconds(t),
                 "ddl": DB.effective_ddl(t),
             })
+        title = (self.note_name or "").replace("\n", " ").strip()
+        self.display_title = title[:32] + ("..." if len(title) > 32 else "")
+        metrics = QFontMetrics(f(13, bold=True))
+        title_rect = metrics.boundingRect(
+            0, 0, self.width() - PAD * 2 - 22, 1000,
+            int(Qt.TextFlag.TextWrapAnywhere), self.display_title)
+        self.title_h = max(TITLE_H, 14 + title_rect.height())
         self.layout_size()
+        self.sync_complete_buttons()
+        should_pin = any(r["overdue"] or r["delay"] > 0 for r in self.rows)
+        is_pinned = bool(self.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        if should_pin != is_pinned:
+            was_visible = self.isVisible()
+            position = self.pos()
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, should_pin)
+            self.move(position)
+            if was_visible:
+                self.show()
+        self.update()
+
+    def sync_complete_buttons(self):
+        for button in self.complete_buttons:
+            button.hide()
+            button.deleteLater()
+        self.complete_buttons = []
+        for index, row in enumerate(self.rows[:4]):
+            button = QPushButton("完成", self)
+            button.setGeometry(self.width() - PAD - 44,
+                               self.title_h + PAD + index * ITEM_H, 44, 22)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setStyleSheet(
+                "QPushButton { color: #28734B; background: #E7F3EB; "
+                "border: 1px solid #B9DCC6; border-radius: 5px; font-size: 11px; }"
+                "QPushButton:hover { background: #CFE8D8; }"
+                "QPushButton:pressed { background: #B9DCC6; }")
+            button.clicked.connect(lambda checked=False, task_id=row["id"]:
+                                   self.complete_task(task_id))
+            button.show()
+            self.complete_buttons.append(button)
+
+    def complete_task(self, task_id):
+        DB.complete_task(task_id)
+        self.reload()
+        if not self.rows:
+            self.hide()
+        self.update()
 
     def layout_size(self):
         """按行数计算窗口高度（最多显示 4 个事务，超出显示省略提示）"""
         n = len(self.rows)
         shown = min(n, 4)
-        h = TITLE_H + PAD
+        h = self.title_h + PAD
         if shown:
             h += shown * ITEM_H
         if n > shown:
@@ -172,9 +219,9 @@ class StickyWindow(QWidget):
         # 便签名
         p.setFont(f(13, bold=True))
         p.setPen(ink)
-        p.drawText(QRectF(PAD, 14, w - PAD * 2 - 22, 20),
-                   int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-                   elide(self.note_name, 14))
+        p.drawText(QRectF(PAD, 14, w - PAD * 2 - 22, self.title_h - 14),
+                   int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWrapAnywhere),
+                   self.display_title)
         # 右上角小按钮（⋯）
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(0, 0, 0, 22))
@@ -186,16 +233,16 @@ class StickyWindow(QWidget):
 
         # 分隔线
         p.setPen(QPen(edge, 1))
-        p.drawLine(QPointF(PAD, TITLE_H + 6), QPointF(w - PAD, TITLE_H + 6))
+        p.drawLine(QPointF(PAD, self.title_h + 6), QPointF(w - PAD, self.title_h + 6))
 
         # 事务行
-        y = TITLE_H + PAD
+        y = self.title_h + PAD
         shown = self.rows[:4]
         for r in shown:
             # 内容摘要
             p.setFont(f(12))
             p.setPen(ink)
-            p.drawText(QRectF(PAD, y, w - PAD * 2, 18),
+            p.drawText(QRectF(PAD, y, w - PAD * 2 - 52, 18),
                        int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
                        elide(r["content"] or r["name"], 16))
             # 倒计时（红字）+ 已延时标记
@@ -232,15 +279,37 @@ class StickyWindow(QWidget):
 
     # ---------------- 交互 ----------------
     def mousePressEvent(self, e):
+        if e.button() != Qt.MouseButton.LeftButton:
+            return super().mousePressEvent(e)
+        self._drag_offset = None
+        self._drag_start = None
         x, y = e.position().x(), e.position().y()
         # 右上角 ⋯ 按钮
         if x > self.width() - 36 and y < TITLE_H + 12:
             self.menu_open = not self.menu_open
             self.update()
             return
-        # 点事务正文 -> 打开主程序（后续可接详情页）
+        self._drag_start = e.globalPosition().toPoint()
+        self._drag_offset = self._drag_start - self.pos()
+        # 点击正文关闭菜单
         self.menu_open = False
         self.update()
+
+    def mouseMoveEvent(self, e):
+        if (self._drag_offset is not None
+                and e.buttons() & Qt.MouseButton.LeftButton):
+            current = e.globalPosition().toPoint()
+            if (current - self._drag_start).manhattanLength() >= QApplication.startDragDistance():
+                self.move(current - self._drag_offset)
+            e.accept()
+            return
+        super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._drag_offset = None
+            self._drag_start = None
+        super().mouseReleaseEvent(e)
 
     def mouseDoubleClickEvent(self, e):
         # 双击打开主程序
@@ -268,8 +337,8 @@ class StickyManager(QObject):
         self.sync()
 
     def sync(self):
-        """按数据库中的便签列表增删窗口"""
-        notes = DB.list_notes()
+        """仅为仍有待处理事务（含延时未完成）的便签保留窗口"""
+        notes = [n for n in DB.list_notes() if n["pending_cnt"] > 0]
         ids = {n["id"] for n in notes}
         # 删除已不存在的
         for nid in list(self.windows):
