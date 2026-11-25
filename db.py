@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """Agenda 数据库层：SQLite + Python"""
 import os
+import sys
 import sqlite3
 from datetime import datetime, timedelta
 
-APP_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Agenda")
+PROJECT_DIR = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
+APP_DIR = os.path.join(PROJECT_DIR, "DB")
 DB_PATH = os.path.join(APP_DIR, "agenda.db")
 
 STATUS_PENDING = "pending"
